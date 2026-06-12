@@ -1,6 +1,6 @@
 # Whip
 
-Whip is a small Tauri desktop app that renders a transparent 3D whip overlay. A quick whip gesture sends `Enter` to the currently focused window.
+Whip is a small Windows Tauri desktop app that renders a transparent 3D whip overlay. A quick whip gesture sends `Enter` to the currently focused window.
 
 ## Features
 
@@ -42,7 +42,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 ```text
 src/                 Frontend entry point and styles
-src-tauri/           Tauri and platform-specific Rust code
+src-tauri/           Tauri and Windows Rust code
 packages/            Shared TypeScript workspace packages
 public/              Runtime assets served by Vite/Tauri
 ```

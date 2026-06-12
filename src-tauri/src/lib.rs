@@ -1,5 +1,5 @@
 mod commands;
-mod platform;
+mod windows;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -15,13 +15,13 @@ pub fn run() {
 
             if let Some(window) = app.get_webview_window("main") {
                 let _ = configure_widget_window(&window);
-                platform::install_cursor_interaction(window.clone());
-                platform::install_exit_shortcut(app.handle().clone());
+                windows::install_cursor_interaction(window.clone());
+                windows::install_exit_shortcut(app.handle().clone());
 
                 let widget_window = window.clone();
                 window.on_window_event(move |event| match event {
                     WindowEvent::Focused(_) | WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
-                        let _ = platform::keep_above(&widget_window);
+                        let _ = windows::keep_above(&widget_window);
                     }
                     _ => {}
                 });
@@ -51,7 +51,7 @@ fn install_tray_icon<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             "show" => {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
-                    let _ = platform::keep_above(&window);
+                    let _ = windows::keep_above(&window);
                 }
             }
             "hide" => {
@@ -91,5 +91,5 @@ fn configure_widget_window<R: Runtime>(window: &WebviewWindow<R>) -> tauri::Resu
     }
 
     window.set_always_on_top(true)?;
-    platform::keep_above(window)
+    windows::keep_above(window)
 }

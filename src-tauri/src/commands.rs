@@ -1,4 +1,4 @@
-use crate::platform;
+use crate::windows;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -18,10 +18,10 @@ pub struct FocusActionResult {
 
 #[tauri::command]
 pub fn update_interaction_region(regions: Vec<InteractionRegion>) {
-    platform::set_interaction_regions(
+    windows::set_interaction_regions(
         regions
             .into_iter()
-            .map(|region| platform::InteractionRegion {
+            .map(|region| windows::InteractionRegion {
                 x: region.x,
                 y: region.y,
                 width: region.width,
@@ -45,7 +45,6 @@ pub fn trigger_enter() -> FocusActionResult {
     }
 }
 
-#[cfg(target_os = "windows")]
 fn send_enter() -> Result<(), String> {
     use std::mem::size_of;
 
@@ -78,7 +77,6 @@ fn send_enter() -> Result<(), String> {
     }
 }
 
-#[cfg(target_os = "windows")]
 fn keyboard_input(
     scan_code: u16,
     flags: u32,
@@ -99,9 +97,4 @@ fn keyboard_input(
             },
         },
     }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn send_enter() -> Result<(), String> {
-    Err("Enter injection is only implemented on Windows for now.".into())
 }
