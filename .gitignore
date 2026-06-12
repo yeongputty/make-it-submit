@@ -1,7 +1,8 @@
 node_modules/
+.pnpm-store/
 dist/
 target/
 .DS_Store
 *.log
 *.local
-apps/desktop/src-tauri/gen/
+src-tauri/gen/

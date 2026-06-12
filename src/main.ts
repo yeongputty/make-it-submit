@@ -53,19 +53,29 @@ appRoot.append(spotlightOverlay);
 const actionBar = document.createElement("section");
 actionBar.className = "action-bar";
 
+const whipCountLabel = document.createElement("div");
+whipCountLabel.className = "whip-count";
+whipCountLabel.textContent = "0 whips";
+actionBar.append(whipCountLabel);
+
 const actionButton = document.createElement("button");
 actionButton.className = "action-button";
 actionButton.type = "button";
 actionButton.textContent = "Pardon";
 actionBar.append(actionButton);
 
+const shortcutHint = document.createElement("div");
+shortcutHint.className = "shortcut-hint";
+shortcutHint.textContent = "Press Alt + Shift + Q to quit";
+actionBar.append(shortcutHint);
+
 appRoot.append(actionBar);
 
 const AUTO_X_MULTIPLIER = 0;
 const UP_Y = 2.4;
 const DOWN_Y = 0.2;
-const AUTO_DOWN_DURATION = 5.8;
-const AUTO_UP_DURATION = 4.2;
+const AUTO_DOWN_DURATION = 3.8;
+const AUTO_UP_DURATION = 2.4;
 const AUTO_RETURN_DURATION = 0;
 const WHIP_DIRECTION_CHANGE_DOT_MAX = 0.45;
 const WHIP_TRIGGER_SPEED = 2.4;
@@ -78,6 +88,19 @@ const WHIP_WHOOSH_GAIN = 1.05;
 const WHIP_CRACK_GAIN = 2.35;
 const WHIP_SLAP_BODY_GAIN = 1.02;
 const WHIP_ECHO_GAIN = 0.76;
+const VOICE_WARMUP_GAIN = 2.35;
+const VOICE_WARMUP_DELAY_SECONDS = 0.18;
+const VOICE_WARMUP_DURATION_SECONDS = 0.5;
+const WHIP_COUNT_STORAGE_KEY = "whip.count";
+const MAX_WHIP_COUNT = 999_999;
+const VOICE_ASSET_KEY = new Uint8Array([0x57, 0x48, 0x49, 0x50, 0x2d, 0x76, 0x6f, 0x69, 0x63, 0x65]);
+const VOICE_ASSET_PATHS = [
+  "/r9x/k4q/0f7c9a2d.whp",
+  "/r9x/k4q/a24f0c79.whp",
+  "/r9x/k4q/91bd0e4f.whp",
+  "/r9x/k4q/7e03d9b4.whp",
+  "/r9x/k4q/c6a82190.whp",
+] as const;
 
 type HandlePosition = { x: number; y: number };
 
@@ -116,10 +139,13 @@ let peakHandleSpeed = 0;
 let swingDirectionAnchor = { x: 0, y: 0 };
 let hasSwingDirectionAnchor = false;
 let lastFocusActionTime = -Infinity;
+let whipCount = loadWhipCount();
 let audioContext: AudioContext | undefined;
 let whipNoiseBuffer: AudioBuffer | undefined;
 let whipMaster: GainNode | undefined;
 let whipCompressor: DynamicsCompressorNode | undefined;
+let voiceOutput: GainNode | undefined;
+const voiceBuffers = new Map<string, AudioBuffer>();
 
 type TriggerEnterResult = {
   ok: boolean;
@@ -166,8 +192,10 @@ function getAudioContext() {
     audioContext = new AudioContextConstructor();
     whipMaster = audioContext.createGain();
     whipCompressor = audioContext.createDynamicsCompressor();
+    voiceOutput = audioContext.createGain();
 
     whipMaster.gain.value = WHIP_MASTER_GAIN;
+    voiceOutput.gain.value = 1;
     whipCompressor.threshold.value = -12;
     whipCompressor.knee.value = 18;
     whipCompressor.ratio.value = 5;
@@ -176,6 +204,7 @@ function getAudioContext() {
 
     whipMaster.connect(whipCompressor);
     whipCompressor.connect(audioContext.destination);
+    voiceOutput.connect(audioContext.destination);
   }
 
   return audioContext;
@@ -199,6 +228,94 @@ function makeNoiseBuffer(context: AudioContext) {
 
   whipNoiseBuffer = buffer;
   return buffer;
+}
+
+function decodeBase64(base64: string) {
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
+}
+
+async function loadVoiceBuffer(context: AudioContext, path: string) {
+  const cachedBuffer = voiceBuffers.get(path);
+
+  if (cachedBuffer) {
+    return cachedBuffer;
+  }
+
+  const encoded = await fetch(path).then((response) => {
+    if (!response.ok) {
+      throw new Error(`Voice asset request failed: ${response.status} ${path}`);
+    }
+
+    return response.text();
+  });
+  const [header, payload] = encoded.trim().split(/\s+/, 2);
+
+  if (header !== "WHIPVOICE1" || !payload) {
+    throw new Error(`Invalid voice asset: ${path}`);
+  }
+
+  const bytes = decodeBase64(payload);
+
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] ^= VOICE_ASSET_KEY[index % VOICE_ASSET_KEY.length];
+  }
+
+  const buffer = await context.decodeAudioData(bytes.buffer.slice(0));
+  voiceBuffers.set(path, buffer);
+
+  return buffer;
+}
+
+function playVoiceWarmup(context: AudioContext, startTime: number, count: number) {
+  if (!voiceOutput) {
+    return;
+  }
+
+  const path =
+    count % 10 === 9 ? VOICE_ASSET_PATHS[Math.floor(count / 10) % VOICE_ASSET_PATHS.length] : undefined;
+
+  if (!path) {
+    return;
+  }
+
+  void loadVoiceBuffer(context, path)
+    .then((buffer) => {
+      if (!voiceOutput) {
+        return;
+      }
+
+      const source = context.createBufferSource();
+      const gain = context.createGain();
+      const tone = context.createBiquadFilter();
+      const safeStartTime = Math.max(startTime, context.currentTime + 0.012);
+      const voiceGain = VOICE_WARMUP_GAIN;
+      const voiceOffset = 0;
+      const voiceDuration = Math.min(VOICE_WARMUP_DURATION_SECONDS, buffer.duration);
+
+      source.buffer = buffer;
+      gain.gain.setValueAtTime(0.001, safeStartTime);
+      gain.gain.exponentialRampToValueAtTime(voiceGain, safeStartTime + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.001, safeStartTime + voiceDuration);
+      tone.type = "lowpass";
+      tone.frequency.value = 2400;
+      tone.Q.value = 0.7;
+
+      source.connect(tone);
+      tone.connect(gain);
+      gain.connect(voiceOutput);
+      source.start(safeStartTime, voiceOffset);
+      source.stop(safeStartTime + voiceDuration + 0.04);
+    })
+    .catch((error) => {
+      console.warn("Failed to play voice warmup", error);
+    });
 }
 
 function connectCrackEcho(context: AudioContext, source: AudioNode, startTime: number) {
@@ -232,7 +349,7 @@ function connectCrackEcho(context: AudioContext, source: AudioNode, startTime: n
   feedback.connect(delay);
 }
 
-function playWhipSound() {
+function playWhipSound(count: number) {
   const context = getAudioContext();
 
   if (!context || !whipMaster) {
@@ -250,6 +367,8 @@ function playWhipSound() {
   const crackOffset = Math.random() * 0.32;
   const slapBodyOffset = Math.random() * 0.32;
   const snapOffset = Math.random() * 0.32;
+
+  playVoiceWarmup(context, now + VOICE_WARMUP_DELAY_SECONDS, count);
 
   const whoosh = context.createBufferSource();
   const whooshBand = context.createBiquadFilter();
@@ -410,6 +529,24 @@ function setPunishedState(nextIsPunished: boolean) {
   actionButton.textContent = isPunished ? "Pardon" : "Punish";
 }
 
+function loadWhipCount() {
+  const storedCount = Number.parseInt(localStorage.getItem(WHIP_COUNT_STORAGE_KEY) ?? "", 10);
+
+  if (!Number.isFinite(storedCount)) {
+    return 0;
+  }
+
+  return Math.min(Math.max(storedCount, 0), MAX_WHIP_COUNT);
+}
+
+function saveWhipCount() {
+  localStorage.setItem(WHIP_COUNT_STORAGE_KEY, String(whipCount));
+}
+
+function updateWhipCountLabel() {
+  whipCountLabel.textContent = `${whipCount} ${whipCount === 1 ? "whip" : "whips"}`;
+}
+
 function cancelPardonAsPunished() {
   if (!isPunished && autoAnimation.status === "running") {
     setPunishedState(true);
@@ -423,7 +560,10 @@ function triggerFocusAction(time: number, position?: { x: number; y: number }) {
   }
 
   lastFocusActionTime = time;
-  playWhipSound();
+  whipCount = Math.min(whipCount + 1, MAX_WHIP_COUNT);
+  saveWhipCount();
+  updateWhipCountLabel();
+  playWhipSound(whipCount);
 
   if (position) {
     scene.options.onCrack(scene.toScenePoint(position));
@@ -662,5 +802,6 @@ function tick(time: number) {
 
 chain.setHandle(handle);
 scene.renderWhip(chain.snapshot(), 0, 0);
+updateWhipCountLabel();
 updateInteractionRegion(performance.now(), true);
 requestAnimationFrame(tick);

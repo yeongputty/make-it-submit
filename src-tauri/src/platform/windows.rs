@@ -6,9 +6,7 @@ use std::{
 
 use tauri::{Runtime, WebviewWindow};
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, POINT, WPARAM};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VK_CONTROL, VK_MENU, VK_Q,
-};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_MENU, VK_Q, VK_SHIFT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetCursorPos, GetMessageW, SetWindowPos, SetWindowsHookExW,
     UnhookWindowsHookEx, HC_ACTION, HWND_TOPMOST, KBDLLHOOKSTRUCT, MSG, SWP_ASYNCWINDOWPOS,
@@ -134,7 +132,7 @@ unsafe extern "system" fn exit_shortcut_keyboard_proc(
     if code == HC_ACTION as i32 && (wparam as u32 == WM_KEYDOWN || wparam as u32 == WM_SYSKEYDOWN) {
         let key_event = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
 
-        if key_event.vkCode == VK_Q as u32 && is_key_down(VK_CONTROL) && is_key_down(VK_MENU) {
+        if key_event.vkCode == VK_Q as u32 && is_key_down(VK_MENU) && is_key_down(VK_SHIFT) {
             if let Some(app) = APP_HANDLE.get() {
                 app.exit(0);
             }

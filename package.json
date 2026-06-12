@@ -1,15 +1,25 @@
 {
-  "name": "whip",
+  "name": "@whip/desktop",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @whip/desktop dev",
-    "tauri": "pnpm --filter @whip/desktop tauri",
-    "build": "pnpm --filter @whip/desktop build",
-    "typecheck": "pnpm -r typecheck"
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit",
+    "typecheck:all": "pnpm -r typecheck"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.0",
+    "@whip/physics": "workspace:*",
+    "@whip/renderer": "workspace:*",
+    "three": "^0.179.1"
   },
   "devDependencies": {
-    "typescript": "^5.8.3"
+    "@tauri-apps/cli": "^2.11.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.0"
   }
 }

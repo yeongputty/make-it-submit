@@ -7,22 +7,16 @@ settings:
 importers:
 
   .:
-    devDependencies:
-      typescript:
-        specifier: ^5.8.3
-        version: 5.9.3
-
-  apps/desktop:
     dependencies:
       '@tauri-apps/api':
         specifier: ^2.11.0
         version: 2.11.0
       '@whip/physics':
         specifier: workspace:*
-        version: link:../../packages/whip-physics
+        version: link:packages/whip-physics
       '@whip/renderer':
         specifier: workspace:*
-        version: link:../../packages/whip-renderer
+        version: link:packages/whip-renderer
       three:
         specifier: ^0.179.1
         version: 0.179.1
@@ -30,6 +24,9 @@ importers:
       '@tauri-apps/cli':
         specifier: ^2.11.0
         version: 2.11.2
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
       vite:
         specifier: ^7.0.0
         version: 7.3.5
