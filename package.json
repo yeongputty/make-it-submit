@@ -1,0 +1,15 @@
+{
+  "name": "whip",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @whip/desktop dev",
+    "tauri": "pnpm --filter @whip/desktop tauri",
+    "build": "pnpm --filter @whip/desktop build",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

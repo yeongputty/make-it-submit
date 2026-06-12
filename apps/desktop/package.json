@@ -1,0 +1,23 @@
+{
+  "name": "@whip/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.0",
+    "@whip/physics": "workspace:*",
+    "@whip/renderer": "workspace:*",
+    "three": "^0.179.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.0",
+    "vite": "^7.0.0"
+  }
+}
