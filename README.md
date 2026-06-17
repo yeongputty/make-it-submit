@@ -16,9 +16,9 @@ Make It Submit_0.1.1_x64-setup.exe
 
 설치 파일을 실행한 뒤 안내에 따라 설치하세요.
 
-## 설치 및 실행 파일 만들기
+## 개발자용
 
-먼저 아래 도구가 설치되어 있어야 합니다.
+소스 코드에서 직접 실행하거나 빌드하려면 아래 도구가 설치되어 있어야 합니다.
 
 - Node.js
 - pnpm
@@ -26,10 +26,21 @@ Make It Submit_0.1.1_x64-setup.exe
 - Microsoft C++ Build Tools
 - Microsoft Edge WebView2 Runtime
 
-소스 코드를 받은 뒤 프로젝트 폴더에서 실행합니다.
+프로젝트 폴더에서 의존성을 설치합니다.
 
 ```powershell
 pnpm install
+```
+
+개발 중 바로 실행하려면 아래 명령을 사용합니다.
+
+```powershell
+pnpm tauri dev
+```
+
+설치 파일을 만들려면 아래 명령을 실행합니다.
+
+```powershell
 pnpm tauri build
 ```
 
@@ -37,12 +48,6 @@ pnpm tauri build
 
 ```text
 src-tauri/target/release/bundle/
-```
-
-개발 중 바로 실행하려면 아래 명령을 사용합니다.
-
-```powershell
-pnpm tauri dev
 ```
 
 ## 배포 메모
@@ -115,9 +120,9 @@ Make It Submit_0.1.1_x64-setup.exe
 
 Run the installer and follow the setup instructions.
 
-## Install And Build
+## For Developers
 
-Install these tools first.
+To run or build the app from source, install these tools first.
 
 - Node.js
 - pnpm
@@ -125,10 +130,21 @@ Install these tools first.
 - Microsoft C++ Build Tools
 - Microsoft Edge WebView2 Runtime
 
-After downloading the source code, run these commands in the project folder.
+Install dependencies in the project folder.
 
 ```powershell
 pnpm install
+```
+
+To run the app during development, use:
+
+```powershell
+pnpm tauri dev
+```
+
+To create an installer, run:
+
+```powershell
 pnpm tauri build
 ```
 
@@ -136,12 +152,6 @@ The executable and installer files are usually created here.
 
 ```text
 src-tauri/target/release/bundle/
-```
-
-To run the app during development, use:
-
-```powershell
-pnpm tauri dev
 ```
 
 ## Release Notes
