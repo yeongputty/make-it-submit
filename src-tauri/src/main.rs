@@ -1,3 +1,3 @@
 fn main() {
-    whip_lib::run()
+    make_it_submit_lib::run()
 }

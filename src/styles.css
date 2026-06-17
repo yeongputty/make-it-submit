@@ -62,15 +62,14 @@ canvas {
   right: 40px;
   bottom: 80px;
   z-index: 5;
-  --action-font-size: 12px;
+  --action-font-size: 11px;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 12px;
   align-items: center;
   pointer-events: auto;
 }
 
-.whip-count,
 .shortcut-hint {
   color: #05070a;
   font-family:
@@ -90,31 +89,27 @@ canvas {
   white-space: nowrap;
 }
 
-.whip-count {
-  font-size: var(--action-font-size);
-  line-height: 1;
-}
-
 .shortcut-hint {
   font-size: var(--action-font-size);
   line-height: 1;
+  opacity: 0.58;
 }
 
 .action-button {
   position: relative;
-  min-width: 82px;
-  height: 30px;
-  border: 1px solid #d7dde7;
+  min-width: 68px;
+  height: 25px;
+  border: 1px solid #05070a;
   border-radius: 0;
-  background: linear-gradient(180deg, #ffffff 0%, #edf1f7 100%);
-  color: #11151c;
+  background: linear-gradient(180deg, #17191f 0%, #05070a 100%);
+  color: #ffffff;
   font: 700 var(--action-font-size) / 1 Pretendard, Inter, ui-sans-serif, system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", sans-serif;
   letter-spacing: 0;
   box-shadow:
-    0 4px 0 #aeb7c5,
-    0 8px 14px rgba(0, 0, 0, 0.26),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    0 3px 0 #000000,
+    0 6px 10px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.26);
   cursor: pointer;
   transform: translateY(0);
   transition:
@@ -125,10 +120,10 @@ canvas {
 
 .action-button::before {
   position: absolute;
-  inset: 4px 6px auto;
-  height: 6px;
+  inset: 3px 5px auto;
+  height: 4px;
   border-radius: 0;
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.18);
   content: "";
 }
 
@@ -138,8 +133,8 @@ canvas {
 
 .action-button:active {
   box-shadow:
-    0 1px 0 #aeb7c5,
-    0 4px 8px rgba(0, 0, 0, 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
-  transform: translateY(3px);
+    0 1px 0 #000000,
+    0 3px 6px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transform: translateY(2px);
 }

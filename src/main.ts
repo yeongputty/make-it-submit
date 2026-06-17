@@ -53,11 +53,6 @@ appRoot.append(spotlightOverlay);
 const actionBar = document.createElement("section");
 actionBar.className = "action-bar";
 
-const whipCountLabel = document.createElement("div");
-whipCountLabel.className = "whip-count";
-whipCountLabel.textContent = "0 whips";
-actionBar.append(whipCountLabel);
-
 const actionButton = document.createElement("button");
 actionButton.className = "action-button";
 actionButton.type = "button";
@@ -71,445 +66,103 @@ actionBar.append(shortcutHint);
 
 appRoot.append(actionBar);
 
-const AUTO_X_MULTIPLIER = 0;
+const AUTO_X = 0;
 const UP_Y = 2.4;
 const DOWN_Y = 0.2;
-const AUTO_DOWN_DURATION = 3.8;
-const AUTO_UP_DURATION = 2.4;
-const AUTO_RETURN_DURATION = 0;
-const WHIP_DIRECTION_CHANGE_DOT_MAX = 0.45;
-const WHIP_TRIGGER_SPEED = 2.4;
-const WHIP_TRIGGER_ACCELERATION = 42;
-const WHIP_SPEED_SMOOTHING = 0.22;
-const FOCUS_ACTION_COOLDOWN_MS = 650;
-const WHIP_CRACK_DELAY_SECONDS = 0.4;
-const WHIP_MASTER_GAIN = 1.35;
-const WHIP_WHOOSH_GAIN = 1.05;
-const WHIP_CRACK_GAIN = 2.35;
-const WHIP_SLAP_BODY_GAIN = 1.02;
-const WHIP_ECHO_GAIN = 0.76;
-const VOICE_WARMUP_GAIN = 2.35;
-const VOICE_WARMUP_DELAY_SECONDS = 0.18;
-const VOICE_WARMUP_DURATION_SECONDS = 0.5;
-const WHIP_COUNT_STORAGE_KEY = "whip.count";
-const MAX_WHIP_COUNT = 999_999;
-const VOICE_ASSET_KEY = new Uint8Array([0x57, 0x48, 0x49, 0x50, 0x2d, 0x76, 0x6f, 0x69, 0x63, 0x65]);
-const VOICE_ASSET_PATHS = [
-  "/r9x/k4q/0f7c9a2d.whp",
-  "/r9x/k4q/a24f0c79.whp",
-  "/r9x/k4q/91bd0e4f.whp",
-  "/r9x/k4q/7e03d9b4.whp",
-  "/r9x/k4q/c6a82190.whp",
-] as const;
+const DOWN_TIME = 3.8;
+const UP_TIME = 2.4;
+const RETURN_TIME = 0;
+const ACTION_COOLDOWN_MS = 650;
+const DRAG_ARM_DELAY_MS = 220;
+const SOUND_SRC = "/audio/whip.mp3";
+const SOUND_POOL_SIZE = 4;
 
-type HandlePosition = { x: number; y: number };
+type Pos = { x: number; y: number };
 
-type AutoAnimationStep = {
-  to: HandlePosition;
+type AnimStep = {
+  to: Pos;
   duration: number;
 };
 
-type AutoAnimation = {
+type Anim = {
   status: "idle" | "running" | "done";
-  from: HandlePosition;
-  to: HandlePosition;
+  from: Pos;
+  to: Pos;
   progress: number;
   duration: number;
-  next?: AutoAnimationStep;
+  next?: AnimStep;
   hideSpotlightOnComplete?: boolean;
 };
 
 let isPunished = true;
 let isDragging = false;
+let dragStartedAt = -Infinity;
+let dragOffset: Pos = { x: 0, y: 0 };
 let handle = getUpHandle();
-let autoAnimation: AutoAnimation = {
+let anim: Anim = {
   status: "running",
   from: { ...handle },
   to: getDownHandle(),
   progress: 0,
-  duration: AUTO_DOWN_DURATION,
+  duration: DOWN_TIME,
   hideSpotlightOnComplete: true,
 };
 let lastTime = performance.now();
-let previousHandle = { ...handle };
-let handleSpeed = 0;
-let smoothedHandleSpeed = 0;
-let previousSmoothedHandleSpeed = 0;
-let peakHandleSpeed = 0;
-let swingDirectionAnchor = { x: 0, y: 0 };
-let hasSwingDirectionAnchor = false;
-let lastFocusActionTime = -Infinity;
-let whipCount = loadWhipCount();
-let audioContext: AudioContext | undefined;
-let whipNoiseBuffer: AudioBuffer | undefined;
-let whipMaster: GainNode | undefined;
-let whipCompressor: DynamicsCompressorNode | undefined;
-let voiceOutput: GainNode | undefined;
-const voiceBuffers = new Map<string, AudioBuffer>();
+let lastActionTime = -Infinity;
+let soundIndex = 0;
+const whipSounds = Array.from({ length: SOUND_POOL_SIZE }, () => {
+  const audio = new Audio(SOUND_SRC);
+  audio.preload = "auto";
+  audio.volume = 0.6;
 
-type TriggerEnterResult = {
+  return audio;
+});
+
+type EnterResult = {
   ok: boolean;
   reason?: string | null;
 };
 
-let nextInteractionRegionUpdate = 0;
+let nextRegionUpdate = 0;
 
-type InteractionRegion = {
+type Region = {
   x: number;
   y: number;
   width: number;
   height: number;
 };
 
-function normalizeDirection(direction: { x: number; y: number }) {
-  const length = Math.hypot(direction.x, direction.y);
+function playWhipSound() {
+  const sound = whipSounds[soundIndex];
+  soundIndex = (soundIndex + 1) % whipSounds.length;
+  sound.currentTime = 0;
 
-  if (length < 0.001) {
-    return { x: 0, y: 0 };
-  }
-
-  return {
-    x: direction.x / length,
-    y: direction.y / length,
-  };
-}
-
-function getAudioContext() {
-  if (!audioContext) {
-    const AudioContextConstructor =
-      window.AudioContext ??
-      (
-        window as Window &
-          typeof globalThis & {
-            webkitAudioContext?: typeof AudioContext;
-          }
-      ).webkitAudioContext;
-
-    if (!AudioContextConstructor) {
-      return undefined;
-    }
-
-    audioContext = new AudioContextConstructor();
-    whipMaster = audioContext.createGain();
-    whipCompressor = audioContext.createDynamicsCompressor();
-    voiceOutput = audioContext.createGain();
-
-    whipMaster.gain.value = WHIP_MASTER_GAIN;
-    voiceOutput.gain.value = 1;
-    whipCompressor.threshold.value = -12;
-    whipCompressor.knee.value = 18;
-    whipCompressor.ratio.value = 5;
-    whipCompressor.attack.value = 0.001;
-    whipCompressor.release.value = 0.08;
-
-    whipMaster.connect(whipCompressor);
-    whipCompressor.connect(audioContext.destination);
-    voiceOutput.connect(audioContext.destination);
-  }
-
-  return audioContext;
-}
-
-function makeNoiseBuffer(context: AudioContext) {
-  if (whipNoiseBuffer) {
-    return whipNoiseBuffer;
-  }
-
-  const duration = 1.2;
-  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
-  const channel = buffer.getChannelData(0);
-  let previous = 0;
-
-  for (let index = 0; index < channel.length; index += 1) {
-    const white = Math.random() * 2 - 1;
-    previous = previous * 0.72 + white * 0.28;
-    channel[index] = white * 0.72 + previous * 0.28;
-  }
-
-  whipNoiseBuffer = buffer;
-  return buffer;
-}
-
-function decodeBase64(base64: string) {
-  const binary = window.atob(base64);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-
-  return bytes;
-}
-
-async function loadVoiceBuffer(context: AudioContext, path: string) {
-  const cachedBuffer = voiceBuffers.get(path);
-
-  if (cachedBuffer) {
-    return cachedBuffer;
-  }
-
-  const encoded = await fetch(path).then((response) => {
-    if (!response.ok) {
-      throw new Error(`Voice asset request failed: ${response.status} ${path}`);
-    }
-
-    return response.text();
+  void sound.play().catch((error) => {
+    console.warn("Failed to play whip sound", error);
   });
-  const [header, payload] = encoded.trim().split(/\s+/, 2);
-
-  if (header !== "WHIPVOICE1" || !payload) {
-    throw new Error(`Invalid voice asset: ${path}`);
-  }
-
-  const bytes = decodeBase64(payload);
-
-  for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] ^= VOICE_ASSET_KEY[index % VOICE_ASSET_KEY.length];
-  }
-
-  const buffer = await context.decodeAudioData(bytes.buffer.slice(0));
-  voiceBuffers.set(path, buffer);
-
-  return buffer;
-}
-
-function playVoiceWarmup(context: AudioContext, startTime: number, count: number) {
-  if (!voiceOutput) {
-    return;
-  }
-
-  const path =
-    count % 10 === 9 ? VOICE_ASSET_PATHS[Math.floor(count / 10) % VOICE_ASSET_PATHS.length] : undefined;
-
-  if (!path) {
-    return;
-  }
-
-  void loadVoiceBuffer(context, path)
-    .then((buffer) => {
-      if (!voiceOutput) {
-        return;
-      }
-
-      const source = context.createBufferSource();
-      const gain = context.createGain();
-      const tone = context.createBiquadFilter();
-      const safeStartTime = Math.max(startTime, context.currentTime + 0.012);
-      const voiceGain = VOICE_WARMUP_GAIN;
-      const voiceOffset = 0;
-      const voiceDuration = Math.min(VOICE_WARMUP_DURATION_SECONDS, buffer.duration);
-
-      source.buffer = buffer;
-      gain.gain.setValueAtTime(0.001, safeStartTime);
-      gain.gain.exponentialRampToValueAtTime(voiceGain, safeStartTime + 0.025);
-      gain.gain.exponentialRampToValueAtTime(0.001, safeStartTime + voiceDuration);
-      tone.type = "lowpass";
-      tone.frequency.value = 2400;
-      tone.Q.value = 0.7;
-
-      source.connect(tone);
-      tone.connect(gain);
-      gain.connect(voiceOutput);
-      source.start(safeStartTime, voiceOffset);
-      source.stop(safeStartTime + voiceDuration + 0.04);
-    })
-    .catch((error) => {
-      console.warn("Failed to play voice warmup", error);
-    });
-}
-
-function connectCrackEcho(context: AudioContext, source: AudioNode, startTime: number) {
-  if (!whipMaster) {
-    return;
-  }
-
-  const delay = context.createDelay(0.22);
-  const feedback = context.createGain();
-  const wet = context.createGain();
-  const tone = context.createBiquadFilter();
-  const cutMud = context.createBiquadFilter();
-
-  delay.delayTime.value = 0.078;
-  feedback.gain.value = 0.27;
-  wet.gain.setValueAtTime(WHIP_ECHO_GAIN, startTime);
-  wet.gain.exponentialRampToValueAtTime(0.001, startTime + 0.48);
-  tone.type = "lowpass";
-  tone.frequency.value = 4200;
-  tone.Q.value = 0.5;
-  cutMud.type = "highpass";
-  cutMud.frequency.value = 1250;
-  cutMud.Q.value = 0.72;
-
-  source.connect(delay);
-  delay.connect(cutMud);
-  cutMud.connect(tone);
-  tone.connect(wet);
-  wet.connect(whipMaster);
-  tone.connect(feedback);
-  feedback.connect(delay);
-}
-
-function playWhipSound(count: number) {
-  const context = getAudioContext();
-
-  if (!context || !whipMaster) {
-    return;
-  }
-
-  void context.resume().catch((error) => {
-    console.warn("Failed to resume audio context", error);
-  });
-
-  const now = context.currentTime + 0.012;
-  const crackTime = now + WHIP_CRACK_DELAY_SECONDS;
-  const noiseBuffer = makeNoiseBuffer(context);
-  const whooshOffset = Math.random() * 0.32;
-  const crackOffset = Math.random() * 0.32;
-  const slapBodyOffset = Math.random() * 0.32;
-  const snapOffset = Math.random() * 0.32;
-
-  playVoiceWarmup(context, now + VOICE_WARMUP_DELAY_SECONDS, count);
-
-  const whoosh = context.createBufferSource();
-  const whooshBand = context.createBiquadFilter();
-  const whooshHighpass = context.createBiquadFilter();
-  const whooshGain = context.createGain();
-  const whooshPan = context.createStereoPanner();
-
-  whoosh.buffer = noiseBuffer;
-  whooshBand.type = "bandpass";
-  whooshBand.frequency.setValueAtTime(6200, now);
-  whooshBand.frequency.exponentialRampToValueAtTime(1450, crackTime + 0.035);
-  whooshBand.Q.setValueAtTime(0.92, now);
-  whooshBand.Q.linearRampToValueAtTime(2.25, crackTime);
-  whooshHighpass.type = "highpass";
-  whooshHighpass.frequency.value = 720;
-  whooshPan.pan.setValueAtTime(-0.18, now);
-  whooshPan.pan.linearRampToValueAtTime(0.16, crackTime);
-  whooshGain.gain.setValueAtTime(0.001, now);
-  whooshGain.gain.exponentialRampToValueAtTime(WHIP_WHOOSH_GAIN, now + 0.17);
-  whooshGain.gain.exponentialRampToValueAtTime(0.018, crackTime + 0.1);
-
-  whoosh.connect(whooshBand);
-  whooshBand.connect(whooshHighpass);
-  whooshHighpass.connect(whooshGain);
-  whooshGain.connect(whooshPan);
-  whooshPan.connect(whipMaster);
-  whoosh.start(now, whooshOffset);
-  whoosh.stop(crackTime + 0.16);
-
-  const crackNoise = context.createBufferSource();
-  const crackBand = context.createBiquadFilter();
-  const crackHighpass = context.createBiquadFilter();
-  const crackGain = context.createGain();
-  const crackDrive = context.createWaveShaper();
-  const crackPan = context.createStereoPanner();
-  const curve = new Float32Array(2048);
-
-  for (let index = 0; index < curve.length; index += 1) {
-    const x = (index / (curve.length - 1)) * 2 - 1;
-    curve[index] = Math.tanh(x * 5.4);
-  }
-
-  crackNoise.buffer = noiseBuffer;
-  crackBand.type = "bandpass";
-  crackBand.frequency.setValueAtTime(6400, crackTime);
-  crackBand.frequency.exponentialRampToValueAtTime(3100, crackTime + 0.09);
-  crackBand.Q.value = 1.55;
-  crackHighpass.type = "highpass";
-  crackHighpass.frequency.value = 1450;
-  crackGain.gain.setValueAtTime(0.001, crackTime);
-  crackGain.gain.exponentialRampToValueAtTime(WHIP_CRACK_GAIN, crackTime + 0.004);
-  crackGain.gain.exponentialRampToValueAtTime(0.055, crackTime + 0.14);
-  crackGain.gain.exponentialRampToValueAtTime(0.001, crackTime + 0.28);
-  crackDrive.curve = curve;
-  crackDrive.oversample = "4x";
-  crackPan.pan.setValueAtTime(0.08, crackTime);
-
-  crackNoise.connect(crackBand);
-  crackBand.connect(crackHighpass);
-  crackHighpass.connect(crackDrive);
-  crackDrive.connect(crackGain);
-  crackGain.connect(crackPan);
-  crackPan.connect(whipMaster);
-  connectCrackEcho(context, crackPan, crackTime);
-  crackNoise.start(crackTime, crackOffset);
-  crackNoise.stop(crackTime + 0.3);
-
-  const slapBody = context.createBufferSource();
-  const slapBodyBand = context.createBiquadFilter();
-  const slapBodyNotch = context.createBiquadFilter();
-  const slapBodyGain = context.createGain();
-  const slapBodyPan = context.createStereoPanner();
-
-  slapBody.buffer = noiseBuffer;
-  slapBodyBand.type = "bandpass";
-  slapBodyBand.frequency.setValueAtTime(1850, crackTime);
-  slapBodyBand.frequency.exponentialRampToValueAtTime(780, crackTime + 0.13);
-  slapBodyBand.Q.value = 1.05;
-  slapBodyNotch.type = "notch";
-  slapBodyNotch.frequency.value = 420;
-  slapBodyNotch.Q.value = 1.2;
-  slapBodyGain.gain.setValueAtTime(0.001, crackTime);
-  slapBodyGain.gain.exponentialRampToValueAtTime(WHIP_SLAP_BODY_GAIN, crackTime + 0.006);
-  slapBodyGain.gain.exponentialRampToValueAtTime(0.045, crackTime + 0.095);
-  slapBodyGain.gain.exponentialRampToValueAtTime(0.001, crackTime + 0.18);
-  slapBodyPan.pan.setValueAtTime(0.02, crackTime);
-
-  slapBody.connect(slapBodyBand);
-  slapBodyBand.connect(slapBodyNotch);
-  slapBodyNotch.connect(slapBodyGain);
-  slapBodyGain.connect(slapBodyPan);
-  slapBodyPan.connect(whipMaster);
-  connectCrackEcho(context, slapBodyPan, crackTime);
-  slapBody.start(crackTime, slapBodyOffset);
-  slapBody.stop(crackTime + 0.26);
-
-  const snap = context.createBufferSource();
-  const snapGain = context.createGain();
-  const snapFilter = context.createBiquadFilter();
-  const snapPresence = context.createBiquadFilter();
-
-  snap.buffer = noiseBuffer;
-  snapGain.gain.setValueAtTime(0.001, crackTime);
-  snapGain.gain.exponentialRampToValueAtTime(0.52, crackTime + 0.002);
-  snapGain.gain.exponentialRampToValueAtTime(0.001, crackTime + 0.055);
-  snapFilter.type = "highpass";
-  snapFilter.frequency.value = 2100;
-  snapPresence.type = "peaking";
-  snapPresence.frequency.value = 4300;
-  snapPresence.Q.value = 0.9;
-  snapPresence.gain.value = 1.2;
-
-  snap.connect(snapFilter);
-  snapFilter.connect(snapPresence);
-  snapPresence.connect(snapGain);
-  snapGain.connect(whipMaster);
-  snap.start(crackTime, snapOffset);
-  snap.stop(crackTime + 0.06);
 }
 
 function getUpHandle() {
   return {
-    x: scene.aspectScale() * AUTO_X_MULTIPLIER,
+    x: scene.aspectScale() * AUTO_X,
     y: UP_Y,
   };
 }
 
 function getDownHandle() {
   return {
-    x: scene.aspectScale() * AUTO_X_MULTIPLIER,
+    x: scene.aspectScale() * AUTO_X,
     y: DOWN_Y,
   };
 }
 
-function startAutoAnimation(
-  to: HandlePosition,
+function startAnim(
+  to: Pos,
   duration: number,
-  next?: AutoAnimationStep,
+  next?: AnimStep,
   hideSpotlightOnComplete = false,
 ) {
-  autoAnimation = {
+  anim = {
     status: "running",
     from: { ...handle },
     to,
@@ -529,47 +182,26 @@ function setPunishedState(nextIsPunished: boolean) {
   actionButton.textContent = isPunished ? "Pardon" : "Punish";
 }
 
-function loadWhipCount() {
-  const storedCount = Number.parseInt(localStorage.getItem(WHIP_COUNT_STORAGE_KEY) ?? "", 10);
-
-  if (!Number.isFinite(storedCount)) {
-    return 0;
-  }
-
-  return Math.min(Math.max(storedCount, 0), MAX_WHIP_COUNT);
-}
-
-function saveWhipCount() {
-  localStorage.setItem(WHIP_COUNT_STORAGE_KEY, String(whipCount));
-}
-
-function updateWhipCountLabel() {
-  whipCountLabel.textContent = `${whipCount} ${whipCount === 1 ? "whip" : "whips"}`;
-}
-
 function cancelPardonAsPunished() {
-  if (!isPunished && autoAnimation.status === "running") {
+  if (!isPunished && anim.status === "running") {
     setPunishedState(true);
     setSpotlightOverlay(false);
   }
 }
 
 function triggerFocusAction(time: number, position?: { x: number; y: number }) {
-  if (time - lastFocusActionTime < FOCUS_ACTION_COOLDOWN_MS) {
+  if (time - lastActionTime < ACTION_COOLDOWN_MS) {
     return false;
   }
 
-  lastFocusActionTime = time;
-  whipCount = Math.min(whipCount + 1, MAX_WHIP_COUNT);
-  saveWhipCount();
-  updateWhipCountLabel();
-  playWhipSound(whipCount);
+  lastActionTime = time;
+  playWhipSound();
 
   if (position) {
     scene.options.onCrack(scene.toScenePoint(position));
   }
 
-  void invoke<TriggerEnterResult>("trigger_enter")
+  void invoke<EnterResult>("trigger_enter")
     .then((result) => {
       if (!result.ok) {
         console.warn("Enter was not delivered", result.reason);
@@ -582,7 +214,7 @@ function triggerFocusAction(time: number, position?: { x: number; y: number }) {
   return true;
 }
 
-function elementInteractionRegion(element: HTMLElement, padding = 8): InteractionRegion {
+function elementRegion(element: HTMLElement, padding = 8): Region {
   const rect = element.getBoundingClientRect();
   const scale = window.devicePixelRatio || 1;
 
@@ -594,7 +226,7 @@ function elementInteractionRegion(element: HTMLElement, padding = 8): Interactio
   };
 }
 
-function currentInteractionRegions(): InteractionRegion[] {
+function currentRegions(): Region[] {
   if (isDragging) {
     const rect = scene.bounds();
     const scale = window.devicePixelRatio || 1;
@@ -609,22 +241,22 @@ function currentInteractionRegions(): InteractionRegion[] {
     ];
   }
 
-  return [scene.handleInteractionRegion(), elementInteractionRegion(actionButton)];
+  return [scene.handleInteractionRegion(), elementRegion(actionButton)];
 }
 
-function sendInteractionRegions(regions: InteractionRegion[]) {
+function sendRegions(regions: Region[]) {
   void invoke("update_interaction_region", { regions }).catch((error) => {
     console.warn("Failed to update interaction region", error);
   });
 }
 
-function updateInteractionRegion(time: number, force = false) {
-  if (!force && time < nextInteractionRegionUpdate) {
+function updateRegions(time: number, force = false) {
+  if (!force && time < nextRegionUpdate) {
     return;
   }
 
-  nextInteractionRegionUpdate = time + 50;
-  sendInteractionRegions(currentInteractionRegions());
+  nextRegionUpdate = time + 50;
+  sendRegions(currentRegions());
 }
 
 function mapPointer(event: PointerEvent) {
@@ -640,18 +272,16 @@ function mapPointer(event: PointerEvent) {
 
 function startDrag(event: PointerEvent) {
   isDragging = true;
-  updateInteractionRegion(performance.now(), true);
+  dragStartedAt = performance.now();
+  updateRegions(performance.now(), true);
   cancelPardonAsPunished();
-  autoAnimation.status = "idle";
+  anim.status = "idle";
   setSpotlightOverlay(false);
-  handle = mapPointer(event);
-  previousHandle = { ...handle };
-  handleSpeed = 0;
-  smoothedHandleSpeed = 0;
-  previousSmoothedHandleSpeed = 0;
-  peakHandleSpeed = 0;
-  swingDirectionAnchor = { x: 0, y: 0 };
-  hasSwingDirectionAnchor = false;
+  const pointer = mapPointer(event);
+  dragOffset = {
+    x: handle.x - pointer.x,
+    y: handle.y - pointer.y,
+  };
   chain.setHandle(handle);
 
   try {
@@ -670,12 +300,17 @@ function moveDrag(event: PointerEvent) {
     return;
   }
 
-  handle = mapPointer(event);
+  const pointer = mapPointer(event);
+  handle = {
+    x: pointer.x + dragOffset.x,
+    y: pointer.y + dragOffset.y,
+  };
 }
 
 function endDrag(event: PointerEvent) {
   isDragging = false;
-  updateInteractionRegion(performance.now(), true);
+  dragStartedAt = -Infinity;
+  updateRegions(performance.now(), true);
 
   try {
     appRoot.releasePointerCapture(event.pointerId);
@@ -694,12 +329,12 @@ actionButton.addEventListener("click", (event) => {
 
   if (isPunished) {
     setSpotlightOverlay(true);
-    startAutoAnimation(getDownHandle(), AUTO_DOWN_DURATION, undefined, true);
+    startAnim(getDownHandle(), DOWN_TIME, undefined, true);
   } else {
     setSpotlightOverlay(false);
-    startAutoAnimation(getDownHandle(), AUTO_RETURN_DURATION, {
+    startAnim(getDownHandle(), RETURN_TIME, {
       to: getUpHandle(),
-      duration: AUTO_UP_DURATION,
+      duration: UP_TIME,
     });
   }
 
@@ -717,53 +352,36 @@ window.addEventListener("pointermove", moveDrag);
 window.addEventListener("pointerup", endDrag);
 window.addEventListener("pointercancel", () => {
   isDragging = false;
+  dragStartedAt = -Infinity;
 });
 
 function tick(time: number) {
   const dt = Math.min((time - lastTime) / 1000, 0.034);
   lastTime = time;
 
-  if (!isDragging && autoAnimation.status === "running") {
-    autoAnimation.progress = Math.min(autoAnimation.progress + dt / autoAnimation.duration, 1);
+  if (!isDragging && anim.status === "running") {
+    anim.progress = Math.min(anim.progress + dt / anim.duration, 1);
     handle = {
-      x: autoAnimation.from.x + (autoAnimation.to.x - autoAnimation.from.x) * autoAnimation.progress,
-      y: autoAnimation.from.y + (autoAnimation.to.y - autoAnimation.from.y) * autoAnimation.progress,
+      x: anim.from.x + (anim.to.x - anim.from.x) * anim.progress,
+      y: anim.from.y + (anim.to.y - anim.from.y) * anim.progress,
     };
 
-    if (autoAnimation.progress >= 1) {
-      const nextAnimation = autoAnimation.next;
-      const shouldHideSpotlight = autoAnimation.hideSpotlightOnComplete;
+    if (anim.progress >= 1) {
+      const next = anim.next;
+      const shouldHideSpotlight = anim.hideSpotlightOnComplete;
 
-      autoAnimation.status = "done";
-      handle = { ...autoAnimation.to };
+      anim.status = "done";
+      handle = { ...anim.to };
 
-      if (nextAnimation) {
-        startAutoAnimation(nextAnimation.to, nextAnimation.duration);
+      if (next) {
+        startAnim(next.to, next.duration);
       } else if (shouldHideSpotlight) {
         setSpotlightOverlay(false);
       }
     }
   }
 
-  const easedHandle = handle;
-  const handleDeltaX = easedHandle.x - previousHandle.x;
-  const handleDeltaY = easedHandle.y - previousHandle.y;
-
-  handleSpeed = Math.hypot(handleDeltaX, handleDeltaY) / Math.max(dt, 0.001);
-  smoothedHandleSpeed += (handleSpeed - smoothedHandleSpeed) * WHIP_SPEED_SMOOTHING;
-  const handleAcceleration = (smoothedHandleSpeed - previousSmoothedHandleSpeed) / Math.max(dt, 0.001);
-  previousSmoothedHandleSpeed = smoothedHandleSpeed;
-  peakHandleSpeed = Math.max(smoothedHandleSpeed, peakHandleSpeed * 0.94);
-  previousHandle = { ...easedHandle };
-  const swingDirection = normalizeDirection({ x: handleDeltaX, y: handleDeltaY });
-  const hasSwingDirection = Math.hypot(swingDirection.x, swingDirection.y) > 0.001 && smoothedHandleSpeed > 0.35;
-  const swingDirectionDot =
-    swingDirection.x * swingDirectionAnchor.x + swingDirection.y * swingDirectionAnchor.y;
-  const hasWhipDirectionChange =
-    hasSwingDirection && hasSwingDirectionAnchor && swingDirectionDot < WHIP_DIRECTION_CHANGE_DOT_MAX;
-
-  handle = easedHandle;
-  chain.setHandle(easedHandle);
+  chain.setHandle(handle);
   chain.step(dt);
 
   const snapshot = chain.snapshot();
@@ -771,30 +389,22 @@ function tick(time: number) {
   const crack = crackDetector.update(tip, time);
 
   scene.renderWhip(snapshot, dt, crack.intensity);
-  updateInteractionRegion(time);
+  updateRegions(time);
+
+  const isDragArmed = !isDragging || time - dragStartedAt > DRAG_ARM_DELAY_MS;
 
   if (
-    (isPunished || isDragging) &&
-    smoothedHandleSpeed > WHIP_TRIGGER_SPEED &&
-    handleAcceleration > WHIP_TRIGGER_ACCELERATION &&
-    smoothedHandleSpeed > peakHandleSpeed * 0.82 &&
-    hasWhipDirectionChange
+    isPunished &&
+    isDragging &&
+    isDragArmed &&
+    crack.triggered
   ) {
-    const crackDirection =
-      Math.hypot(swingDirection.x, swingDirection.y) > 0.001 ? swingDirection : crack.direction;
     const crackPoint = {
-      x: tip.x + crackDirection.x * 0.22,
-      y: tip.y + crackDirection.y * 0.22,
+      x: tip.x + crack.direction.x * 0.22,
+      y: tip.y + crack.direction.y * 0.22,
     };
 
     triggerFocusAction(time, crackPoint);
-    swingDirectionAnchor = swingDirection;
-    hasSwingDirectionAnchor = true;
-  }
-
-  if (hasSwingDirection && !hasSwingDirectionAnchor) {
-    swingDirectionAnchor = swingDirection;
-    hasSwingDirectionAnchor = true;
   }
 
   requestAnimationFrame(tick);
@@ -802,6 +412,5 @@ function tick(time: number) {
 
 chain.setHandle(handle);
 scene.renderWhip(chain.snapshot(), 0, 0);
-updateWhipCountLabel();
-updateInteractionRegion(performance.now(), true);
+updateRegions(performance.now(), true);
 requestAnimationFrame(tick);

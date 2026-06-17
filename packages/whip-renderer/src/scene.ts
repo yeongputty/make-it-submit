@@ -25,7 +25,8 @@ type WhipSceneOptions = {
 };
 
 type Spark = {
-  mesh: Points;
+  core: Points;
+  shadow: Points;
   birth: number;
   origin: Vector3;
   velocities: Float32Array;
@@ -129,12 +130,13 @@ export class WhipScene {
     this.whipGroup.add(this.cordMesh);
 
     this.sparkMaterial = new PointsMaterial({
-      color: 0xffe6a8,
-      size: 0.014,
+      color: 0xffffff,
+      size: 0.013,
       transparent: true,
       opacity: 0.98,
       blending: AdditiveBlending,
       depthWrite: false,
+      depthTest: false,
     });
 
     this.scene.add(this.whipGroup);
@@ -300,10 +302,22 @@ export class WhipScene {
 
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", new BufferAttribute(positions, 3));
-    const mesh = new Points(geometry, this.sparkMaterial.clone());
+    const shadow = new Points(
+      geometry,
+      new PointsMaterial({
+        color: 0x05070a,
+        size: 0.027,
+        transparent: true,
+        opacity: 0.68,
+        depthWrite: false,
+        depthTest: false,
+      }),
+    );
+    const core = new Points(geometry, this.sparkMaterial.clone());
 
-    this.sparks.push({ mesh, birth: performance.now(), origin: origin.clone(), velocities });
-    this.scene.add(mesh);
+    this.sparks.push({ core, shadow, birth: performance.now(), origin: origin.clone(), velocities });
+    this.scene.add(shadow);
+    this.scene.add(core);
   }
 
   private updateSparks(now: number) {
@@ -312,12 +326,18 @@ export class WhipScene {
       const age = (now - spark.birth) / 1000;
       const progress = Math.min(age / SPARK_LIFETIME_SECONDS, 1);
       const spread = 1 - Math.pow(1 - progress, 2.4);
-      const material = spark.mesh.material;
-      const positionAttribute = spark.mesh.geometry.getAttribute("position");
+      const coreMaterial = spark.core.material;
+      const shadowMaterial = spark.shadow.material;
+      const positionAttribute = spark.core.geometry.getAttribute("position");
 
-      if (material instanceof PointsMaterial) {
-        material.opacity = Math.max(0, 0.98 * (1 - progress));
-        material.size = Math.max(0.003, 0.014 * (1 - progress * 0.65));
+      if (coreMaterial instanceof PointsMaterial) {
+        coreMaterial.opacity = Math.max(0, 0.98 * (1 - progress));
+        coreMaterial.size = Math.max(0.003, 0.013 * (1 - progress * 0.65));
+      }
+
+      if (shadowMaterial instanceof PointsMaterial) {
+        shadowMaterial.opacity = Math.max(0, 0.68 * (1 - progress));
+        shadowMaterial.size = Math.max(0.006, 0.027 * (1 - progress * 0.58));
       }
 
       if (positionAttribute instanceof BufferAttribute) {
@@ -336,10 +356,14 @@ export class WhipScene {
       }
 
       if (age > SPARK_LIFETIME_SECONDS) {
-        this.scene.remove(spark.mesh);
-        spark.mesh.geometry.dispose();
-        if (spark.mesh.material instanceof PointsMaterial) {
-          spark.mesh.material.dispose();
+        this.scene.remove(spark.core);
+        this.scene.remove(spark.shadow);
+        spark.core.geometry.dispose();
+        if (spark.core.material instanceof PointsMaterial) {
+          spark.core.material.dispose();
+        }
+        if (spark.shadow.material instanceof PointsMaterial) {
+          spark.shadow.material.dispose();
         }
         this.sparks.splice(index, 1);
       }

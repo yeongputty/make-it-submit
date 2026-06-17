@@ -1,1 +1,1 @@
-export { WhipScene } from "./whip-scene";
+export { WhipScene } from "./scene";

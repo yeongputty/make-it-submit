@@ -1,21 +1,27 @@
 use std::{
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, OnceLock,
+    },
     thread,
     time::Duration,
 };
 
-use tauri::{Runtime, WebviewWindow};
+use tauri::{Manager, Runtime, WebviewWindow};
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, POINT, WPARAM};
+use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_MENU, VK_Q, VK_SHIFT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetCursorPos, GetMessageW, SetWindowPos, SetWindowsHookExW,
+    CallNextHookEx, GetCursorPos, GetMessageW, PostThreadMessageW, SetWindowPos, SetWindowsHookExW,
     UnhookWindowsHookEx, HC_ACTION, HWND_TOPMOST, KBDLLHOOKSTRUCT, MSG, SWP_ASYNCWINDOWPOS,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WH_KEYBOARD_LL, WM_KEYDOWN,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT,
     WM_SYSKEYDOWN,
 };
 
 static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
 static INTERACTION_REGIONS: OnceLock<Arc<Mutex<Vec<InteractionRegion>>>> = OnceLock::new();
+static EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+static EXIT_HOOK_THREAD_ID: OnceLock<u32> = OnceLock::new();
 
 #[derive(Clone, Copy)]
 pub struct InteractionRegion {
@@ -93,6 +99,7 @@ pub fn install_cursor_interaction<R: Runtime>(window: WebviewWindow<R>) {
 pub fn install_exit_shortcut(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         let _ = APP_HANDLE.set(app);
+        let _ = EXIT_HOOK_THREAD_ID.set(unsafe { GetCurrentThreadId() });
 
         let hook = unsafe {
             SetWindowsHookExW(
@@ -133,13 +140,38 @@ unsafe extern "system" fn exit_shortcut_keyboard_proc(
         let key_event = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
 
         if key_event.vkCode == VK_Q as u32 && is_key_down(VK_MENU) && is_key_down(VK_SHIFT) {
-            if let Some(app) = APP_HANDLE.get() {
-                app.exit(0);
+            if !EXIT_REQUESTED.swap(true, Ordering::SeqCst) {
+                if let Some(app) = APP_HANDLE.get() {
+                    request_graceful_exit(app.clone());
+                }
             }
+
+            return 1;
         }
     }
 
     unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
+}
+
+fn request_graceful_exit(app: tauri::AppHandle) {
+    let window_app = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        for window in window_app.webview_windows().values() {
+            let _ = window.set_ignore_cursor_events(false);
+            let _ = window.close();
+        }
+    });
+
+    if let Some(thread_id) = EXIT_HOOK_THREAD_ID.get() {
+        unsafe {
+            let _ = PostThreadMessageW(*thread_id, WM_QUIT, 0, 0);
+        }
+    }
+
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(120));
+        app.exit(0);
+    });
 }
 
 fn is_key_down(key: u16) -> bool {

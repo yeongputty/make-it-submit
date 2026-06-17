@@ -34,7 +34,7 @@ pub fn run() {
             commands::update_interaction_region
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Whip");
+        .expect("error while running Make It Submit");
 }
 
 fn install_tray_icon<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
@@ -46,7 +46,7 @@ fn install_tray_icon<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let mut tray = TrayIconBuilder::with_id("main")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .tooltip("Whip")
+        .tooltip("Make It Submit")
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => {
                 if let Some(window) = app.get_webview_window("main") {

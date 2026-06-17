@@ -1,12 +1,13 @@
 [package]
-name = "whip"
-version = "0.1.0"
-description = "A playful desktop whip gesture app"
-authors = ["Whip"]
+name = "make-it-submit"
+version = "0.1.1"
+description = "A playful desktop submission gesture app"
+authors = ["Yeong Putty"]
+license-file = "../LICENSE"
 edition = "2021"
 
 [lib]
-name = "whip_lib"
+name = "make_it_submit_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -16,4 +17,4 @@ tauri-build = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = ["tray-icon"] }
-windows-sys = { version = "0.61", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }

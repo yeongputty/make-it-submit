@@ -2,6 +2,9 @@ node_modules/
 .pnpm-store/
 dist/
 target/
+.agents/
+.codex/
+.tmp/
 .DS_Store
 *.log
 *.local
